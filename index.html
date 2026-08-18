@@ -93,10 +93,10 @@
           <strong id="expiredCount">0</strong>
           <small>Needs attention</small>
         </article>
-        <article class="stat-card">
+        <article id="completedCard" class="stat-card stat-card-clickable" role="button" tabindex="0" aria-label="View completed item history">
           <span class="stat-label">Completed</span>
           <strong id="completedCount">0</strong>
-          <small>Used / discarded</small>
+          <small>Used / discarded · View history</small>
         </article>
       </section>
 
@@ -237,6 +237,47 @@
       <div class="dialog-actions">
         <button class="btn btn-secondary" id="confirmCancel">Cancel</button>
         <button class="btn btn-primary" id="confirmComplete">Mark complete</button>
+      </div>
+    </div>
+  </dialog>
+
+
+  <dialog id="historyDialog" class="history-dialog">
+    <div class="history-box">
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">COMPLETED HISTORY</span>
+          <h3>Completed items</h3>
+          <p class="history-subtitle">Items employees have marked complete are kept here for reference.</p>
+        </div>
+        <button type="button" class="icon-btn" id="closeHistoryBtn" aria-label="Close">×</button>
+      </div>
+
+      <div class="history-toolbar">
+        <input id="historySearchInput" type="search" placeholder="Search item, location, or staff..." />
+        <select id="historySortSelect" aria-label="Sort completed items">
+          <option value="completed-newest">Recently completed</option>
+          <option value="completed-oldest">Oldest completed</option>
+          <option value="name">Item name</option>
+        </select>
+      </div>
+
+      <div id="historyEmpty" class="empty-state hidden">No completed items yet.</div>
+
+      <div id="historyTableWrap" class="table-wrap">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Location</th>
+              <th>Prepared</th>
+              <th>Use-by</th>
+              <th>Completed</th>
+              <th>Staff</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
       </div>
     </div>
   </dialog>

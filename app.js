@@ -8,6 +8,7 @@ const configReady =
 
 let db = null;
 let items = [];
+let completedItems = [];
 let completedCount = 0;
 let pendingCompleteId = null;
 let authMode = "login";
@@ -111,7 +112,8 @@ async function loadItems() {
   }
 
   items = (data || []).filter(x => !x.completed);
-  completedCount = (data || []).filter(x => x.completed).length;
+  completedItems = (data || []).filter(x => x.completed);
+  completedCount = completedItems.length;
 
   $("loadingState").classList.add("hidden");
   $("tableWrap").classList.remove("hidden");
@@ -281,10 +283,65 @@ function renderInventory() {
   });
 }
 
+function filteredCompletedItems() {
+  const query = $("historySearchInput").value.trim().toLowerCase();
+  const sort = $("historySortSelect").value;
+
+  let result = completedItems.filter(item =>
+    item.product_name.toLowerCase().includes(query) ||
+    item.location.toLowerCase().includes(query) ||
+    item.staff_initials.toLowerCase().includes(query)
+  );
+
+  if (sort === "completed-newest") {
+    result.sort((a, b) => new Date(b.completed_at || b.created_at) - new Date(a.completed_at || a.created_at));
+  } else if (sort === "completed-oldest") {
+    result.sort((a, b) => new Date(a.completed_at || a.created_at) - new Date(b.completed_at || b.created_at));
+  } else if (sort === "name") {
+    result.sort((a, b) => a.product_name.localeCompare(b.product_name));
+  }
+
+  return result;
+}
+
+function renderCompletedHistory() {
+  const list = filteredCompletedItems();
+  const body = $("historyBody");
+  const empty = $("historyEmpty");
+  const wrap = $("historyTableWrap");
+
+  if (!list.length) {
+    body.innerHTML = "";
+    empty.classList.remove("hidden");
+    wrap.classList.add("hidden");
+    return;
+  }
+
+  empty.classList.add("hidden");
+  wrap.classList.remove("hidden");
+
+  body.innerHTML = list.map(item => `
+    <tr>
+      <td><span class="item-name">${escapeHtml(item.product_name)}</span></td>
+      <td>${escapeHtml(item.location)}</td>
+      <td>${formatDateTime(item.prepared_at)}</td>
+      <td>${formatDateTime(item.expires_at)}</td>
+      <td>${item.completed_at ? formatDateTime(item.completed_at) : "—"}</td>
+      <td>${escapeHtml(item.staff_initials)}</td>
+    </tr>
+  `).join("");
+}
+
+function openCompletedHistory() {
+  renderCompletedHistory();
+  $("historyDialog").showModal();
+}
+
 function render() {
   renderStats();
   renderAttention();
   renderInventory();
+  renderCompletedHistory();
 }
 
 function escapeHtml(value) {
@@ -390,6 +447,18 @@ $("confirmComplete").addEventListener("click", async () => {
   $("confirmDialog").close();
   await loadItems();
 });
+
+
+$("completedCard").addEventListener("click", openCompletedHistory);
+$("completedCard").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    openCompletedHistory();
+  }
+});
+$("closeHistoryBtn").addEventListener("click", () => $("historyDialog").close());
+$("historySearchInput").addEventListener("input", renderCompletedHistory);
+$("historySortSelect").addEventListener("change", renderCompletedHistory);
 
 ["searchInput", "statusFilter", "sortSelect"].forEach(id => {
   $(id).addEventListener(id === "searchInput" ? "input" : "change", renderInventory);
