@@ -4,117 +4,166 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111827" />
-  <title>FreshTrack | Expiration Dashboard</title>
+  <title>FreshTrack | Shared Expiration Dashboard</title>
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand-wrap">
-      <div class="brand-mark">FT</div>
-      <div>
-        <h1>FreshTrack</h1>
-        <p>Food & beverage expiration tracker</p>
+  <section id="authView" class="auth-shell">
+    <div class="auth-card">
+      <div class="brand-wrap auth-brand">
+        <div class="brand-mark">FT</div>
+        <div>
+          <h1>FreshTrack</h1>
+          <p>Shared food & beverage expiration tracker</p>
+        </div>
       </div>
+
+      <div id="setupWarning" class="setup-warning hidden">
+        <strong>Supabase setup required.</strong>
+        <span>Open <code>config.js</code> and add your Project URL and Publishable Key.</span>
+      </div>
+
+      <div class="auth-tabs">
+        <button id="loginTab" class="auth-tab active" type="button">Sign in</button>
+        <button id="signupTab" class="auth-tab" type="button">Create account</button>
+      </div>
+
+      <form id="authForm">
+        <label>
+          Email
+          <input id="authEmail" type="email" autocomplete="email" placeholder="worker@example.com" required />
+        </label>
+        <label>
+          Password
+          <input id="authPassword" type="password" autocomplete="current-password" minlength="6" placeholder="••••••••" required />
+        </label>
+        <button id="authSubmit" class="btn btn-primary full-width" type="submit">Sign in</button>
+      </form>
+
+      <p id="authMessage" class="auth-message"></p>
+      <p class="auth-note">Employee accounts keep the shared inventory private from unauthenticated visitors.</p>
     </div>
-    <button id="addItemTopBtn" class="btn btn-primary">+ Add item</button>
-  </header>
+  </section>
 
-  <main class="container">
-    <section class="hero">
-      <div>
-        <span class="eyebrow">LIVE INVENTORY</span>
-        <h2>Know what expires next.</h2>
-        <p>Track prepared items, use-by times, and staff initials without checking every physical label.</p>
-      </div>
-      <div class="hero-clock">
-        <span id="currentDate"></span>
-        <strong id="currentTime"></strong>
-      </div>
-    </section>
-
-    <section class="stats-grid" aria-label="Inventory overview">
-      <article class="stat-card">
-        <span class="stat-label">Active items</span>
-        <strong id="activeCount">0</strong>
-        <small>Currently being tracked</small>
-      </article>
-      <article class="stat-card warning-card">
-        <span class="stat-label">Expiring soon</span>
-        <strong id="soonCount">0</strong>
-        <small>Within 24 hours</small>
-      </article>
-      <article class="stat-card danger-card">
-        <span class="stat-label">Expired</span>
-        <strong id="expiredCount">0</strong>
-        <small>Needs attention</small>
-      </article>
-      <article class="stat-card">
-        <span class="stat-label">Used / discarded</span>
-        <strong id="completedCount">0</strong>
-        <small>Completed this session</small>
-      </article>
-    </section>
-
-    <section class="attention-panel">
-      <div class="section-heading">
+  <div id="appView" class="hidden">
+    <header class="topbar">
+      <div class="brand-wrap">
+        <div class="brand-mark">FT</div>
         <div>
-          <span class="eyebrow">PRIORITY</span>
-          <h3>Needs attention</h3>
+          <h1>FreshTrack</h1>
+          <p>Shared expiration dashboard</p>
         </div>
-        <span class="muted">Expired and soon-to-expire items appear here.</span>
       </div>
-      <div id="attentionList" class="attention-list">
-        <div class="empty-state">Nothing needs attention right now.</div>
-      </div>
-    </section>
 
-    <section class="inventory-panel">
-      <div class="section-heading inventory-heading">
+      <div class="top-actions">
+        <span id="syncStatus" class="sync-pill offline">Connecting…</span>
+        <span id="userEmail" class="user-email"></span>
+        <button id="signOutBtn" class="btn btn-secondary">Sign out</button>
+        <button id="addItemTopBtn" class="btn btn-primary">+ Add item</button>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="hero">
         <div>
-          <span class="eyebrow">ALL ITEMS</span>
-          <h3>Active inventory</h3>
+          <span class="eyebrow">LIVE SHARED INVENTORY</span>
+          <h2>Know what expires next.</h2>
+          <p>Every signed-in worker sees the same inventory. New items and completed items sync across devices.</p>
         </div>
-        <div class="toolbar">
-          <input id="searchInput" type="search" placeholder="Search item or location..." />
-          <select id="statusFilter" aria-label="Filter by status">
-            <option value="all">All statuses</option>
-            <option value="good">Good</option>
-            <option value="soon">Expiring soon</option>
-            <option value="expired">Expired</option>
-          </select>
-          <select id="sortSelect" aria-label="Sort items">
-            <option value="expiry">Soonest expiration</option>
-            <option value="newest">Newest added</option>
-            <option value="name">Item name</option>
-          </select>
+        <div class="hero-clock">
+          <span id="currentDate"></span>
+          <strong id="currentTime"></strong>
         </div>
-      </div>
+      </section>
 
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Item</th>
-              <th>Location</th>
-              <th>Prepared</th>
-              <th>Expires</th>
-              <th>Time left</th>
-              <th>Status</th>
-              <th>Staff</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="inventoryBody"></tbody>
-        </table>
-      </div>
-      <div id="inventoryEmpty" class="empty-state hidden">
-        No matching items.
-      </div>
-    </section>
-  </main>
+      <section class="stats-grid" aria-label="Inventory overview">
+        <article class="stat-card">
+          <span class="stat-label">Active items</span>
+          <strong id="activeCount">0</strong>
+          <small>Currently being tracked</small>
+        </article>
+        <article class="stat-card warning-card">
+          <span class="stat-label">Expiring soon</span>
+          <strong id="soonCount">0</strong>
+          <small>Within 24 hours</small>
+        </article>
+        <article class="stat-card danger-card">
+          <span class="stat-label">Expired</span>
+          <strong id="expiredCount">0</strong>
+          <small>Needs attention</small>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Completed</span>
+          <strong id="completedCount">0</strong>
+          <small>Used / discarded</small>
+        </article>
+      </section>
+
+      <section class="attention-panel">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">PRIORITY</span>
+            <h3>Needs attention</h3>
+          </div>
+          <span class="muted">Expired and soon-to-expire items appear here.</span>
+        </div>
+        <div id="attentionList" class="attention-list">
+          <div class="empty-state">Loading shared inventory…</div>
+        </div>
+      </section>
+
+      <section class="inventory-panel">
+        <div class="section-heading inventory-heading">
+          <div>
+            <span class="eyebrow">ALL ITEMS</span>
+            <h3>Active inventory</h3>
+          </div>
+          <div class="toolbar">
+            <input id="searchInput" type="search" placeholder="Search item or location..." />
+            <select id="statusFilter" aria-label="Filter by status">
+              <option value="all">All statuses</option>
+              <option value="good">Good</option>
+              <option value="soon">Expiring soon</option>
+              <option value="expired">Expired</option>
+            </select>
+            <select id="sortSelect" aria-label="Sort items">
+              <option value="expiry">Soonest expiration</option>
+              <option value="newest">Newest added</option>
+              <option value="name">Item name</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="loadingState" class="empty-state">Loading…</div>
+        <div id="tableWrap" class="table-wrap hidden">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Location</th>
+                <th>Prepared</th>
+                <th>Expires</th>
+                <th>Time left</th>
+                <th>Status</th>
+                <th>Staff</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="inventoryBody"></tbody>
+          </table>
+        </div>
+        <div id="inventoryEmpty" class="empty-state hidden">No matching items.</div>
+      </section>
+    </main>
+
+    <footer>
+      <p>FreshTrack · Shared through Supabase · Hosted on GitHub Pages</p>
+    </footer>
+  </div>
 
   <dialog id="itemDialog">
-    <form id="itemForm" method="dialog">
+    <form id="itemForm">
       <div class="dialog-header">
         <div>
           <span class="eyebrow">NEW LABEL</span>
@@ -155,7 +204,7 @@
 
         <label>
           Staff initials
-          <input id="staffInitials" maxlength="6" placeholder="e.g. HN" required />
+          <input id="staffInitials" maxlength="8" placeholder="e.g. HN" required />
         </label>
 
         <label>
@@ -171,11 +220,12 @@
         </label>
       </div>
 
-      <p class="form-hint">Tip: choose a shelf-life preset to calculate the expiration time automatically from the prepared time.</p>
+      <p class="form-hint">Choose a shelf-life preset to calculate the expiration time automatically.</p>
+      <p id="formError" class="form-error"></p>
 
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
-        <button type="submit" class="btn btn-primary">Add item</button>
+        <button id="addItemSubmit" type="submit" class="btn btn-primary">Add item</button>
       </div>
     </form>
   </dialog>
@@ -183,7 +233,7 @@
   <dialog id="confirmDialog">
     <div class="confirm-box">
       <h3>Mark item complete?</h3>
-      <p>This removes it from active inventory and records it as used/discarded.</p>
+      <p>This removes it from active inventory but keeps it in the shared history as used/discarded.</p>
       <div class="dialog-actions">
         <button class="btn btn-secondary" id="confirmCancel">Cancel</button>
         <button class="btn btn-primary" id="confirmComplete">Mark complete</button>
@@ -191,10 +241,7 @@
     </div>
   </dialog>
 
-  <footer>
-    <p>FreshTrack stores data in this browser using local storage.</p>
-  </footer>
-
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

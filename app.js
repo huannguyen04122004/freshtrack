@@ -1,20 +1,141 @@
 
-const STORAGE_KEY = "freshtrack-items-v1";
-const COMPLETED_KEY = "freshtrack-completed-v1";
+const cfg = window.FRESHTRACK_CONFIG || {};
+const configReady =
+  cfg.SUPABASE_URL &&
+  cfg.SUPABASE_PUBLISHABLE_KEY &&
+  !cfg.SUPABASE_URL.includes("YOUR_") &&
+  !cfg.SUPABASE_PUBLISHABLE_KEY.includes("YOUR_");
 
-let items = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-let completedCount = Number(localStorage.getItem(COMPLETED_KEY) || 0);
+let db = null;
+let items = [];
+let completedCount = 0;
 let pendingCompleteId = null;
+let authMode = "login";
+let realtimeChannel = null;
 
 const $ = (id) => document.getElementById(id);
 
-const itemDialog = $("itemDialog");
-const confirmDialog = $("confirmDialog");
-const itemForm = $("itemForm");
+if (configReady) {
+  db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_PUBLISHABLE_KEY);
+} else {
+  $("setupWarning").classList.remove("hidden");
+  $("authSubmit").disabled = true;
+}
 
-function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  localStorage.setItem(COMPLETED_KEY, completedCount);
+function setSyncStatus(text, mode = "online") {
+  const el = $("syncStatus");
+  el.textContent = text;
+  el.className = `sync-pill ${mode === "online" ? "" : mode}`.trim();
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  $("loginTab").classList.toggle("active", mode === "login");
+  $("signupTab").classList.toggle("active", mode === "signup");
+  $("authSubmit").textContent = mode === "login" ? "Sign in" : "Create account";
+  $("authPassword").autocomplete = mode === "login" ? "current-password" : "new-password";
+  $("authMessage").textContent = "";
+}
+
+$("loginTab").addEventListener("click", () => setAuthMode("login"));
+$("signupTab").addEventListener("click", () => setAuthMode("signup"));
+
+$("authForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!db) return;
+
+  const email = $("authEmail").value.trim();
+  const password = $("authPassword").value;
+  $("authSubmit").disabled = true;
+  $("authMessage").textContent = "";
+
+  try {
+    if (authMode === "signup") {
+      const { data, error } = await db.auth.signUp({ email, password });
+      if (error) throw error;
+
+      if (data.session) {
+        $("authMessage").textContent = "Account created. Signing you in…";
+      } else {
+        $("authMessage").style.color = "#087a45";
+        $("authMessage").textContent = "Account created. Check your email to confirm it, then sign in.";
+      }
+    } else {
+      const { error } = await db.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    }
+  } catch (err) {
+    $("authMessage").style.color = "";
+    $("authMessage").textContent = err.message || "Authentication failed.";
+  } finally {
+    $("authSubmit").disabled = false;
+  }
+});
+
+$("signOutBtn").addEventListener("click", async () => {
+  if (!db) return;
+  await db.auth.signOut();
+});
+
+async function showApp(session) {
+  $("authView").classList.add("hidden");
+  $("appView").classList.remove("hidden");
+  $("userEmail").textContent = session.user.email || "Signed in";
+  setSyncStatus("Syncing…", "offline");
+  await loadItems();
+  subscribeToChanges();
+}
+
+function showAuth() {
+  $("appView").classList.add("hidden");
+  $("authView").classList.remove("hidden");
+  if (realtimeChannel && db) {
+    db.removeChannel(realtimeChannel);
+    realtimeChannel = null;
+  }
+}
+
+async function loadItems() {
+  if (!db) return;
+  setSyncStatus("Syncing…", "offline");
+
+  const { data, error } = await db
+    .from("inventory_items")
+    .select("*")
+    .order("expires_at", { ascending: true });
+
+  if (error) {
+    setSyncStatus("Sync error", "error");
+    $("loadingState").textContent = `Could not load inventory: ${error.message}`;
+    return;
+  }
+
+  items = (data || []).filter(x => !x.completed);
+  completedCount = (data || []).filter(x => x.completed).length;
+
+  $("loadingState").classList.add("hidden");
+  $("tableWrap").classList.remove("hidden");
+  setSyncStatus("Live", "online");
+  render();
+}
+
+function subscribeToChanges() {
+  if (!db || realtimeChannel) return;
+
+  realtimeChannel = db
+    .channel("freshtrack-inventory")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "inventory_items" },
+      async () => {
+        await loadItems();
+      }
+    )
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") setSyncStatus("Live", "online");
+      else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") setSyncStatus("Reconnect needed", "error");
+      else setSyncStatus("Connecting…", "offline");
+    });
 }
 
 function toLocalInputValue(date) {
@@ -29,14 +150,14 @@ function formatDateTime(value) {
 }
 
 function getStatus(item) {
-  const diff = new Date(item.expiresAt).getTime() - Date.now();
+  const diff = new Date(item.expires_at).getTime() - Date.now();
   if (diff <= 0) return "expired";
   if (diff <= 24 * 60 * 60 * 1000) return "soon";
   return "good";
 }
 
 function formatTimeLeft(item) {
-  let diff = new Date(item.expiresAt).getTime() - Date.now();
+  let diff = new Date(item.expires_at).getTime() - Date.now();
   if (diff <= 0) {
     diff = Math.abs(diff);
     const hours = Math.floor(diff / 3600000);
@@ -45,7 +166,7 @@ function formatTimeLeft(item) {
     return `Expired ${hours}h ${mins}m ago`;
   }
 
-  const totalMinutes = Math.floor(diff / 60000);
+  const totalMinutes = Math.max(0, Math.floor(diff / 60000));
   const days = Math.floor(totalMinutes / 1440);
   const hours = Math.floor((totalMinutes % 1440) / 60);
   const mins = totalMinutes % 60;
@@ -82,7 +203,7 @@ function renderStats() {
 function renderAttention() {
   const attention = items
     .filter(item => ["expired", "soon"].includes(getStatus(item)))
-    .sort((a,b) => new Date(a.expiresAt) - new Date(b.expiresAt));
+    .sort((a,b) => new Date(a.expires_at) - new Date(b.expires_at));
 
   const container = $("attentionList");
 
@@ -96,8 +217,8 @@ function renderAttention() {
     return `
       <div class="attention-item">
         <div class="attention-main">
-          <strong>${escapeHtml(item.productName)}</strong>
-          <span>${escapeHtml(item.location)} · Expires ${formatDateTime(item.expiresAt)}</span>
+          <strong>${escapeHtml(item.product_name)}</strong>
+          <span>${escapeHtml(item.location)} · Expires ${formatDateTime(item.expires_at)}</span>
         </div>
         <div class="attention-time">
           <span class="badge badge-${status}">${statusLabel(status)}</span>
@@ -115,20 +236,16 @@ function filteredItems() {
 
   let result = items.filter(item => {
     const matchesQuery =
-      item.productName.toLowerCase().includes(query) ||
+      item.product_name.toLowerCase().includes(query) ||
       item.location.toLowerCase().includes(query) ||
-      item.staffInitials.toLowerCase().includes(query);
+      item.staff_initials.toLowerCase().includes(query);
     const matchesStatus = filter === "all" || getStatus(item) === filter;
     return matchesQuery && matchesStatus;
   });
 
-  if (sort === "expiry") {
-    result.sort((a,b) => new Date(a.expiresAt) - new Date(b.expiresAt));
-  } else if (sort === "newest") {
-    result.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
-  } else if (sort === "name") {
-    result.sort((a,b) => a.productName.localeCompare(b.productName));
-  }
+  if (sort === "expiry") result.sort((a,b) => new Date(a.expires_at) - new Date(b.expires_at));
+  else if (sort === "newest") result.sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+  else if (sort === "name") result.sort((a,b) => a.product_name.localeCompare(b.product_name));
 
   return result;
 }
@@ -142,13 +259,13 @@ function renderInventory() {
     const status = getStatus(item);
     return `
       <tr>
-        <td><span class="item-name">${escapeHtml(item.productName)}</span></td>
+        <td><span class="item-name">${escapeHtml(item.product_name)}</span></td>
         <td>${escapeHtml(item.location)}</td>
-        <td>${formatDateTime(item.preparedAt)}</td>
-        <td>${formatDateTime(item.expiresAt)}</td>
+        <td>${formatDateTime(item.prepared_at)}</td>
+        <td>${formatDateTime(item.expires_at)}</td>
         <td class="time-left">${formatTimeLeft(item)}</td>
         <td><span class="badge badge-${status}">${statusLabel(status)}</span></td>
-        <td>${escapeHtml(item.staffInitials)}</td>
+        <td>${escapeHtml(item.staff_initials)}</td>
         <td><button class="action-btn" data-complete="${item.id}">Complete</button></td>
       </tr>
     `;
@@ -159,7 +276,7 @@ function renderInventory() {
   document.querySelectorAll("[data-complete]").forEach(button => {
     button.addEventListener("click", () => {
       pendingCompleteId = button.dataset.complete;
-      confirmDialog.showModal();
+      $("confirmDialog").showModal();
     });
   });
 }
@@ -171,7 +288,7 @@ function render() {
 }
 
 function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, ch => ({
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
     "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
   }[ch]));
 }
@@ -180,13 +297,14 @@ function openAddDialog() {
   const now = new Date();
   $("preparedAt").value = toLocalInputValue(now);
   $("expiresAt").value = toLocalInputValue(new Date(now.getTime() + 48 * 3600000));
-  itemDialog.showModal();
+  $("formError").textContent = "";
+  $("itemDialog").showModal();
   setTimeout(() => $("productName").focus(), 50);
 }
 
 $("addItemTopBtn").addEventListener("click", openAddDialog);
-$("closeDialogBtn").addEventListener("click", () => itemDialog.close());
-$("cancelBtn").addEventListener("click", () => itemDialog.close());
+$("closeDialogBtn").addEventListener("click", () => $("itemDialog").close());
+$("cancelBtn").addEventListener("click", () => $("itemDialog").close());
 
 $("shelfLifePreset").addEventListener("change", (e) => {
   const hours = Number(e.target.value);
@@ -204,47 +322,73 @@ $("preparedAt").addEventListener("change", () => {
   $("expiresAt").value = toLocalInputValue(new Date(prepared.getTime() + hours * 3600000));
 });
 
-itemForm.addEventListener("submit", (e) => {
+$("itemForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (!db) return;
 
   const preparedAt = $("preparedAt").value;
   const expiresAt = $("expiresAt").value;
+  const submit = $("addItemSubmit");
+  $("formError").textContent = "";
 
   if (new Date(expiresAt) <= new Date(preparedAt)) {
-    alert("Expiration time must be after the prepared/opened time.");
+    $("formError").textContent = "Expiration time must be after the prepared/opened time.";
     return;
   }
 
-  items.push({
-    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-    productName: $("productName").value.trim(),
+  submit.disabled = true;
+
+  const { error } = await db.from("inventory_items").insert({
+    product_name: $("productName").value.trim(),
     location: $("location").value.trim(),
-    preparedAt,
-    expiresAt,
-    staffInitials: $("staffInitials").value.trim().toUpperCase(),
-    createdAt: new Date().toISOString()
+    prepared_at: new Date(preparedAt).toISOString(),
+    expires_at: new Date(expiresAt).toISOString(),
+    staff_initials: $("staffInitials").value.trim().toUpperCase()
   });
 
-  save();
-  itemForm.reset();
-  itemDialog.close();
-  render();
+  submit.disabled = false;
+
+  if (error) {
+    $("formError").textContent = error.message;
+    return;
+  }
+
+  $("itemForm").reset();
+  $("itemDialog").close();
+  await loadItems();
 });
 
 $("confirmCancel").addEventListener("click", () => {
   pendingCompleteId = null;
-  confirmDialog.close();
+  $("confirmDialog").close();
 });
 
-$("confirmComplete").addEventListener("click", () => {
-  if (pendingCompleteId) {
-    items = items.filter(item => item.id !== pendingCompleteId);
-    completedCount += 1;
-    save();
-    pendingCompleteId = null;
-    confirmDialog.close();
-    render();
+$("confirmComplete").addEventListener("click", async () => {
+  if (!pendingCompleteId || !db) return;
+
+  const button = $("confirmComplete");
+  button.disabled = true;
+
+  const { data: { user } } = await db.auth.getUser();
+  const { error } = await db
+    .from("inventory_items")
+    .update({
+      completed: true,
+      completed_at: new Date().toISOString(),
+      completed_by: user?.id || null
+    })
+    .eq("id", pendingCompleteId);
+
+  button.disabled = false;
+
+  if (error) {
+    alert(`Could not complete item: ${error.message}`);
+    return;
   }
+
+  pendingCompleteId = null;
+  $("confirmDialog").close();
+  await loadItems();
 });
 
 ["searchInput", "statusFilter", "sortSelect"].forEach(id => {
@@ -254,4 +398,18 @@ $("confirmComplete").addEventListener("click", () => {
 updateClock();
 setInterval(updateClock, 1000);
 setInterval(render, 60000);
-render();
+
+async function boot() {
+  if (!db) return;
+
+  const { data: { session } } = await db.auth.getSession();
+  if (session) await showApp(session);
+  else showAuth();
+
+  db.auth.onAuthStateChange(async (_event, session) => {
+    if (session) await showApp(session);
+    else showAuth();
+  });
+}
+
+boot();
