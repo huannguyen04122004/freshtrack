@@ -249,3 +249,24 @@ footer { text-align: center; padding: 0 16px 32px; color: var(--muted); font-siz
   .history-toolbar input,
   .history-toolbar select { width: 100%; min-width: 0; }
 }
+
+
+.btn-danger {
+  background: #b42318;
+  color: white;
+}
+.btn-danger:hover {
+  background: #912018;
+}
+.history-delete-btn {
+  border: 1px solid #f2b8b5;
+  background: #fff6f6;
+  color: #b42318;
+  padding: 7px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-weight: 750;
+}
+.history-delete-btn:hover {
+  background: #ffebea;
+}

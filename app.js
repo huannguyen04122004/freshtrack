@@ -11,6 +11,7 @@ let items = [];
 let completedItems = [];
 let completedCount = 0;
 let pendingCompleteId = null;
+let pendingHistoryDeleteId = null;
 let authMode = "login";
 let realtimeChannel = null;
 
@@ -328,8 +329,16 @@ function renderCompletedHistory() {
       <td>${formatDateTime(item.expires_at)}</td>
       <td>${item.completed_at ? formatDateTime(item.completed_at) : "—"}</td>
       <td>${escapeHtml(item.staff_initials)}</td>
+      <td><button class="history-delete-btn" data-history-delete="${item.id}">Delete</button></td>
     </tr>
   `).join("");
+
+  document.querySelectorAll("[data-history-delete]").forEach(button => {
+    button.addEventListener("click", () => {
+      pendingHistoryDeleteId = button.dataset.historyDelete;
+      $("deleteHistoryDialog").showModal();
+    });
+  });
 }
 
 function openCompletedHistory() {
@@ -448,6 +457,36 @@ $("confirmComplete").addEventListener("click", async () => {
   await loadItems();
 });
 
+
+
+$("deleteHistoryCancel").addEventListener("click", () => {
+  pendingHistoryDeleteId = null;
+  $("deleteHistoryDialog").close();
+});
+
+$("deleteHistoryConfirm").addEventListener("click", async () => {
+  if (!pendingHistoryDeleteId || !db) return;
+
+  const button = $("deleteHistoryConfirm");
+  button.disabled = true;
+
+  const { error } = await db
+    .from("inventory_items")
+    .delete()
+    .eq("id", pendingHistoryDeleteId)
+    .eq("completed", true);
+
+  button.disabled = false;
+
+  if (error) {
+    alert(`Could not delete completed item: ${error.message}`);
+    return;
+  }
+
+  pendingHistoryDeleteId = null;
+  $("deleteHistoryDialog").close();
+  await loadItems();
+});
 
 $("completedCard").addEventListener("click", openCompletedHistory);
 $("completedCard").addEventListener("keydown", (e) => {
